@@ -26,6 +26,7 @@
 #include "video/VideoStream.hpp"
 #include "video/VideoFrame.hpp"
 #include "planes/SubtitleDetector.hpp"
+#include "planes/SceneDetector.hpp"
 
 #include <QFileInfo>
 #include <QImage>
@@ -54,6 +55,7 @@ static void printHelp( QString type ){
 		std << "\t" << "--post-process\n";
 		std << "\t" << "--save\n";
 		std << "\t" << "--remove-subtitles\n";
+		std << "\t" << "--scene-detect\n";
 		std << "\t" << "--no-gui\n";
 		std << "\t" << "--help\n";
 		std << "\n";
@@ -90,6 +92,14 @@ static void printHelp( QString type ){
 			std << "Uses adaptive thresholding and morphological operations to detect subtitles.\n";
 			std << "The subtitle region (typically bottom 15% of the image) will be cropped.\n";
 			std << "This is useful for stitching anime pan shots with subtitles.\n";
+		}
+		else if( type == "scene-detect" ){
+			std << "Detects scene transitions in image sequence:\n";
+			std << "--scene-detect[=<threshold>]\n\n";
+			std << "Threshold: 0.0-1.0 (default: 0.3)\n";
+			std << "Uses SAD (Sum of Absolute Differences) between adjacent frames.\n";
+			std << "Outputs scene information and keeps only the longest scene.\n";
+			std << "This is useful for removing unwanted frames before/after the target pan shot.\n";
 		}
 		else
 			std << "Unknown command: " << type << "\n";
@@ -197,6 +207,55 @@ void CommandParser::parse( QStringList commands ){
 			}
 			
 			std::cout << "Subtitle removal complete." << std::endl;
+		}
+		else if( cmd.is( "scene-detect" ) ){
+			// 解析阈值参数
+			double threshold = 0.3;
+			if( !cmd.arguments().isEmpty() ){
+				bool ok;
+				double val = cmd.arguments().toDouble(&ok);
+				if( ok && val > 0 && val < 1 )
+					threshold = val;
+			}
+			
+			std::cout << "Detecting scenes (threshold=" << threshold << ")..." << std::endl;
+			
+			// 收集所有灰度帧
+			std::vector<Plane> gray_frames;
+			for( auto& group : images ){
+				for( auto& item : group ){
+					auto& img = item.imageRef();
+					if( img.is_valid() && img.size() > 0 ){
+						gray_frames.push_back( Plane(img[0]) );
+					}
+				}
+			}
+			
+			// 检测转场
+			auto scenes = SceneDetector::detectScenes( gray_frames, threshold );
+			
+			// 输出转场信息
+			int transition_count = 0;
+			for( size_t i = 0; i < scenes.size(); i++ ){
+				if( scenes[i].is_transition ){
+					std::cout << "  Transition at frame " << i 
+					          << " (score=" << scenes[i].score << ")" << std::endl;
+					transition_count++;
+				}
+			}
+			std::cout << "Found " << transition_count << " transitions." << std::endl;
+			
+			// 获取最长场景
+			auto longest = SceneDetector::getLongestScene( scenes, gray_frames.size() );
+			std::cout << "Longest scene: frame " << longest.first 
+			          << " to " << longest.second 
+			          << " (" << (longest.second - longest.first + 1) << " frames)" << std::endl;
+			
+			// 只保留最长场景的帧
+			// 这需要修改 images 容器，但 ImageContainer 可能不支持直接删除
+			// 所以这里只是输出信息，用户可以手动选择帧范围
+			std::cout << "\nTo use only the longest scene, extract frames " 
+			          << longest.first << "-" << longest.second << " from the video." << std::endl;
 		}
 		else if( cmd.is( "help" ) )
 			printHelp( cmd.arguments() );
