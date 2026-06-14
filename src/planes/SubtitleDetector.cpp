@@ -108,67 +108,125 @@ SubtitleRegion SubtitleDetector::detect(const Plane& gray) {
 	int height = gray.get_height();
 	
 	// 参数
-	double top_ratio = 0.85;
-	double bottom_ratio = 0.99;
-	double left_margin_ratio = 0.1;
-	double right_margin_ratio = 0.9;
-	int kernel_size = 5;
+	double check_ratio = 0.25; // 检查底部 25% 的区域
+	int check_height = static_cast<int>(check_ratio * height);
+	int start_y = height - check_height;
 	
-	// 自适应阈值化
-	Plane mask = adaptive_threshold(gray, 11, 2);
+	// 从底部向上扫描，找字幕区域
+	// 字幕特征：
+	// 1. 黑底白字：深色背景条 + 白色文字
+	// 2. 白底深字：白色背景上的深色文字块（非白色区域聚集）
 	
-	// 形态学闭运算
-	mask = morphological_close(mask, kernel_size);
+	int subtitle_top = -1;
 	
-	// 定义字幕区域
-	int top_region = static_cast<int>(top_ratio * height);
-	int bottom_region = static_cast<int>(bottom_ratio * height);
-	int left_margin = static_cast<int>(left_margin_ratio * width);
-	int right_margin = static_cast<int>(right_margin_ratio * width);
-	
-	// 检测字幕区域（简化版：统计白色像素）
-	int white_count = 0;
-	int total_count = 0;
-	
-	for (int y = top_region; y < bottom_region; y++) {
-		for (int x = left_margin; x < right_margin; x++) {
-			if (mask.pixel(Point<unsigned>(x, y)) > 128) {
-				white_count++;
+	// 逐行扫描底部区域
+	for (int y = start_y; y < height; y++) {
+		// 计算这一行的统计信息
+		int dark_count = 0;   // 深色像素数
+		int bright_count = 0; // 亮色像素数
+		int non_white_count = 0; // 非白色像素数
+		
+		for (int x = 0; x < width; x++) {
+			double val = gray.pixel(Point<unsigned>(x, y));
+			// 注意：像素值范围是 0-16383（不是 0-255）
+			// 8位的 80 ≈ 5140, 8位的 200 ≈ 12850
+			if (val < 5140) dark_count++;     // 8位 < 80
+			if (val > 12850) bright_count++;  // 8位 > 200
+			if (val < 12850) non_white_count++; // 8位 < 200
+		}
+		
+		double dark_ratio = static_cast<double>(dark_count) / width;
+		double bright_ratio = static_cast<double>(bright_count) / width;
+		double non_white_ratio = static_cast<double>(non_white_count) / width;
+		
+		// 字幕行特征（两种类型）：
+		// 类型1 - 黑底白字：深色像素 > 30%，亮色像素 > 3%
+		// 类型2 - 白底深字：非白色像素 > 10% 且 < 80%（排除大面积深色区域）
+		bool is_subtitle_row = false;
+		
+		if (dark_ratio > 0.3 && bright_ratio > 0.03) {
+			// 黑底白字
+			is_subtitle_row = true;
+		} else if (non_white_ratio > 0.10 && non_white_ratio < 0.80) {
+			// 白底深字（字幕文字区域）
+			// 额外检查：非白色像素应该聚集在某个区域（字幕通常在中间或底部）
+			// 计算非白色像素的分布
+			int first_non_white = -1;
+			int last_non_white = -1;
+			for (int x = 0; x < width; x++) {
+				if (gray.pixel(Point<unsigned>(x, y)) < 12850) { // 8位 < 200
+					if (first_non_white == -1) first_non_white = x;
+					last_non_white = x;
+				}
 			}
-			total_count++;
+			// 字幕通常不会占据整行宽度，而是集中在某个区域
+			if (first_non_white >= 0) {
+				int span = last_non_white - first_non_white;
+				if (span < width * 0.85) {
+					is_subtitle_row = true;
+				}
+			}
+		}
+		
+		if (is_subtitle_row && subtitle_top == -1) {
+			subtitle_top = y;
 		}
 	}
 	
-	// 计算白色像素比例
-	double white_ratio = total_count > 0 ? static_cast<double>(white_count) / total_count : 0;
+	// 如果没有找到字幕行，返回没有字幕
+	if (subtitle_top == -1) {
+		return SubtitleRegion{0, 0, width, 0, false};
+	}
 	
-	// 判断是否有字幕
-	bool has_subtitle = white_ratio > 0.05;
-	
-	// 找到字幕的顶部边界
-	int subtitle_y = top_region;
-	if (has_subtitle) {
-		for (int y = bottom_region - 1; y >= top_region; y--) {
-			int row_white = 0;
-			for (int x = left_margin; x < right_margin; x++) {
-				if (mask.pixel(Point<unsigned>(x, y)) > 128) {
-					row_white++;
+	// 找到字幕区域的顶部（从 subtitle_top 向上找字幕开始的地方）
+	int final_top = subtitle_top;
+	for (int y = subtitle_top - 1; y >= start_y; y--) {
+		int dark_count = 0;
+		int bright_count = 0;
+		int non_white_count = 0;
+		
+		for (int x = 0; x < width; x++) {
+			double val = gray.pixel(Point<unsigned>(x, y));
+			if (val < 80) dark_count++;
+			if (val > 200) bright_count++;
+			if (val < 200) non_white_count++;
+		}
+		
+		double dark_ratio = static_cast<double>(dark_count) / width;
+		double bright_ratio = static_cast<double>(bright_count) / width;
+		double non_white_ratio = static_cast<double>(non_white_count) / width;
+		
+		bool is_subtitle_row = false;
+		if (dark_ratio > 0.3 && bright_ratio > 0.03) {
+			is_subtitle_row = true;
+		} else if (non_white_ratio > 0.10 && non_white_ratio < 0.80) {
+			int first_non_white = width;
+			int last_non_white = 0;
+			for (int x = 0; x < width; x++) {
+				if (gray.pixel(Point<unsigned>(x, y)) < 12850) { // 8位 < 200
+					if (x < first_non_white) first_non_white = x;
+					if (x > last_non_white) last_non_white = x;
 				}
 			}
-			double row_ratio = static_cast<double>(row_white) / (right_margin - left_margin);
-			if (row_ratio < 0.02) {
-				subtitle_y = y + 1;
-				break;
+			int span = last_non_white - first_non_white;
+			if (span > 0 && span < width * 0.6) {
+				is_subtitle_row = true;
 			}
+		}
+		
+		if (is_subtitle_row) {
+			final_top = y;
+		} else {
+			break; // 不是字幕行，停止
 		}
 	}
 	
 	return SubtitleRegion{
 		0,
-		subtitle_y,
+		final_top,
 		width,
-		height - subtitle_y,
-		has_subtitle
+		height - final_top,
+		true
 	};
 }
 

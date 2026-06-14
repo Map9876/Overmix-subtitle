@@ -35,7 +35,6 @@ set(SOURCES_PLANES
 	planes/PlaneExcept.cpp
 	planes/PatternRemove.cpp
 	planes/SubtitleDetector.cpp
-	planes/SceneDetector.cpp
 	planes/gwenview/iodevicejpegsourcemanager.cpp
 	)
 	

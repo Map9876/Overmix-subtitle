@@ -26,7 +26,6 @@
 #include "video/VideoStream.hpp"
 #include "video/VideoFrame.hpp"
 #include "planes/SubtitleDetector.hpp"
-#include "planes/SceneDetector.hpp"
 
 #include <QFileInfo>
 #include <QImage>
@@ -55,7 +54,6 @@ static void printHelp( QString type ){
 		std << "\t" << "--post-process\n";
 		std << "\t" << "--save\n";
 		std << "\t" << "--remove-subtitles\n";
-		std << "\t" << "--scene-detect\n";
 		std << "\t" << "--no-gui\n";
 		std << "\t" << "--help\n";
 		std << "\n";
@@ -92,14 +90,6 @@ static void printHelp( QString type ){
 			std << "Uses adaptive thresholding and morphological operations to detect subtitles.\n";
 			std << "The subtitle region (typically bottom 15% of the image) will be cropped.\n";
 			std << "This is useful for stitching anime pan shots with subtitles.\n";
-		}
-		else if( type == "scene-detect" ){
-			std << "Detects scene transitions in image sequence:\n";
-			std << "--scene-detect[=<threshold>]\n\n";
-			std << "Threshold: 0.0-1.0 (default: 0.3)\n";
-			std << "Uses SAD (Sum of Absolute Differences) between adjacent frames.\n";
-			std << "Outputs scene information and keeps only the longest scene.\n";
-			std << "This is useful for removing unwanted frames before/after the target pan shot.\n";
 		}
 		else
 			std << "Unknown command: " << type << "\n";
@@ -207,85 +197,6 @@ void CommandParser::parse( QStringList commands ){
 			}
 			
 			std::cout << "Subtitle removal complete." << std::endl;
-		}
-		else if( cmd.is( "scene-detect" ) ){
-			// 解析阈值参数
-			double static_threshold = 2.0;
-			double pan_threshold = 10.0;
-			if( !cmd.arguments().isEmpty() ){
-				// 格式: static_threshold:pan_threshold
-				QStringList thresholds = cmd.arguments().split(':');
-				if( thresholds.size() >= 1 ){
-					bool ok;
-					double val = thresholds[0].toDouble(&ok);
-					if( ok && val > 0 ) static_threshold = val;
-				}
-				if( thresholds.size() >= 2 ){
-					bool ok;
-					double val = thresholds[1].toDouble(&ok);
-					if( ok && val > 0 ) pan_threshold = val;
-				}
-			}
-			
-			std::cout << "Analyzing frames..." << std::endl;
-			std::cout << "  Static threshold: " << static_threshold << std::endl;
-			std::cout << "  Pan threshold: " << pan_threshold << std::endl;
-			
-			// 收集所有灰度帧
-			std::vector<Plane> gray_frames;
-			for( auto& group : images ){
-				for( auto& item : group ){
-					auto& img = item.imageRef();
-					if( img.is_valid() && img.size() > 0 ){
-						gray_frames.push_back( Plane(img[0]) );
-					}
-				}
-			}
-			
-			// 分析帧
-			auto scenes = SceneDetector::analyzeFrames( gray_frames, static_threshold, pan_threshold );
-			
-			// 输出每帧信息
-			std::cout << "\nFrame analysis:" << std::endl;
-			for( size_t i = 0; i < scenes.size(); i++ ){
-				const char* type_str = "STATIC";
-				if( scenes[i].type == ShotType::PAN ) type_str = "PAN";
-				if( scenes[i].type == ShotType::TRANSITION ) type_str = "TRANSITION";
-				
-				std::cout << "  Frame " << i 
-				          << " (score=" << scenes[i].score << ")"
-				          << " [" << type_str << "]" << std::endl;
-			}
-			
-			// 分割镜头
-			auto shots = SceneDetector::segmentShots( scenes );
-			
-			// 输出镜头信息
-			std::cout << "\nShot segments:" << std::endl;
-			for( size_t i = 0; i < shots.size(); i++ ){
-				const char* type_str = "STATIC";
-				if( shots[i].type == ShotType::PAN ) type_str = "PAN";
-				if( shots[i].type == ShotType::TRANSITION ) type_str = "TRANSITION";
-				
-				std::cout << "  Shot " << i + 1 
-				          << ": frame " << shots[i].start_frame 
-				          << "-" << shots[i].end_frame
-				          << " (" << (shots[i].end_frame - shots[i].start_frame + 1) << " frames)"
-				          << " [" << type_str << "]"
-				          << " avg_diff=" << shots[i].avg_diff << std::endl;
-			}
-			
-			// 获取平移镜头
-			auto longest = SceneDetector::getLongestPanShot( shots );
-			if( longest.end_frame > longest.start_frame ){
-				std::cout << "\nLongest pan shot: frame " << longest.start_frame 
-				          << " to " << longest.end_frame
-				          << " (" << (longest.end_frame - longest.start_frame + 1) << " frames)" << std::endl;
-				std::cout << "To use this shot, extract frames " 
-				          << longest.start_frame << "-" << longest.end_frame << " from the video." << std::endl;
-			} else {
-				std::cout << "\nNo pan shot detected." << std::endl;
-			}
 		}
 		else if( cmd.is( "help" ) )
 			printHelp( cmd.arguments() );
