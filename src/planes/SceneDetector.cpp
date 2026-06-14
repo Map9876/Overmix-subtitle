@@ -23,137 +23,144 @@
 
 using namespace Overmix;
 
-// 基于 ffmpeg 的 scene_sad 实现
-// 参考: https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/scene_sad.c
-double SceneDetector::calculateSAD(const Plane& frame1, const Plane& frame2) {
-	unsigned width = std::min(frame1.get_width(), frame2.get_width());
-	unsigned height = std::min(frame1.get_height(), frame2.get_height());
-	
-	uint64_t sad = 0;
-	
-	for (unsigned y = 0; y < height; y++) {
-		for (unsigned x = 0; x < width; x++) {
-			int diff = static_cast<int>(frame1.pixel(Point<unsigned>(x, y))) 
-			         - static_cast<int>(frame2.pixel(Point<unsigned>(x, y)));
-			sad += std::abs(diff);
-		}
-	}
-	
-	return static_cast<double>(sad);
-}
-
-double SceneDetector::calculateNormalizedSAD(const Plane& frame1, const Plane& frame2) {
+double SceneDetector::calculateMAD(const Plane& frame1, const Plane& frame2) {
 	unsigned width = std::min(frame1.get_width(), frame2.get_width());
 	unsigned height = std::min(frame1.get_height(), frame2.get_height());
 	
 	if (width == 0 || height == 0) return 0.0;
 	
-	double sad = calculateSAD(frame1, frame2);
+	double sum = 0;
+	for (unsigned y = 0; y < height; y++) {
+		for (unsigned x = 0; x < width; x++) {
+			int diff = static_cast<int>(frame1.pixel(Point<unsigned>(x, y))) 
+			         - static_cast<int>(frame2.pixel(Point<unsigned>(x, y)));
+			sum += std::abs(diff);
+		}
+	}
 	
-	// 归一化到 0-1
-	// 最大 SAD = width * height * 255 (每个像素最大差值为 255)
-	double max_sad = static_cast<double>(width) * height * 255.0;
-	
-	return sad / max_sad;
+	return sum / (width * height);
 }
 
-std::vector<SceneInfo> SceneDetector::detectScenes(
+std::vector<SceneInfo> SceneDetector::analyzeFrames(
 	const std::vector<Plane>& frames,
-	double threshold
+	double static_threshold,
+	double pan_threshold
 ) {
 	std::vector<SceneInfo> results;
 	
-	if (frames.size() < 2) {
-		// 如果只有 1 帧，它就是唯一的一帧
-		if (frames.size() == 1) {
-			results.push_back({0, 0.0, false});
-		}
-		return results;
-	}
+	if (frames.empty()) return results;
 	
-	// 第一帧不是转场
-	results.push_back({0, 0.0, false});
+	// 第一帧默认为静止
+	results.push_back({0, 0.0, ShotType::STATIC});
 	
-	// 计算每对相邻帧之间的 SAD
+	// 计算每对相邻帧之间的差异
 	for (size_t i = 1; i < frames.size(); i++) {
-		double score = calculateNormalizedSAD(frames[i-1], frames[i]);
-		bool is_transition = score > threshold;
+		double mad = calculateMAD(frames[i-1], frames[i]);
+		
+		ShotType type;
+		if (mad < static_threshold) {
+			type = ShotType::STATIC;
+		} else if (mad < pan_threshold) {
+			type = ShotType::PAN;
+		} else {
+			type = ShotType::TRANSITION;
+		}
 		
 		results.push_back({
 			static_cast<int>(i),
-			score,
-			is_transition
+			mad,
+			type
 		});
 	}
 	
 	return results;
 }
 
-std::pair<int, int> SceneDetector::getLongestScene(
+std::vector<ShotInfo> SceneDetector::segmentShots(
 	const std::vector<SceneInfo>& scenes,
-	int total_frames
+	int min_shot_length
 ) {
-	if (scenes.empty()) {
-		return {0, total_frames - 1};
-	}
+	std::vector<ShotInfo> shots;
 	
-	// 找到所有转场点
-	std::vector<int> transitions;
-	transitions.push_back(0); // 第一帧
+	if (scenes.empty()) return shots;
 	
-	for (const auto& scene : scenes) {
-		if (scene.is_transition) {
-			transitions.push_back(scene.frame_index);
+	// 开始第一个镜头
+	int start = 0;
+	ShotType current_type = scenes[0].type;
+	double sum_diff = 0;
+	int count = 0;
+	
+	for (size_t i = 1; i < scenes.size(); i++) {
+		if (scenes[i].type != current_type) {
+			// 镜头类型变化，保存当前镜头
+			int length = i - start;
+			if (length >= min_shot_length) {
+				shots.push_back({
+					start,
+					static_cast<int>(i - 1),
+					current_type,
+					count > 0 ? sum_diff / count : 0
+				});
+			}
+			
+			// 开始新镜头
+			start = i;
+			current_type = scenes[i].type;
+			sum_diff = 0;
+			count = 0;
 		}
-	}
-	transitions.push_back(total_frames); // 最后一帧之后
-	
-	// 找到最长的场景
-	int longest_start = 0;
-	int longest_end = total_frames - 1;
-	int longest_length = 0;
-	
-	for (size_t i = 0; i < transitions.size() - 1; i++) {
-		int start = transitions[i];
-		int end = transitions[i + 1] - 1;
-		int length = end - start + 1;
 		
-		if (length > longest_length) {
-			longest_length = length;
-			longest_start = start;
-			longest_end = end;
-		}
+		sum_diff += scenes[i].score;
+		count++;
 	}
 	
-	return {longest_start, longest_end};
+	// 保存最后一个镜头
+	int length = scenes.size() - start;
+	if (length >= min_shot_length) {
+		shots.push_back({
+			start,
+			static_cast<int>(scenes.size() - 1),
+			current_type,
+			count > 0 ? sum_diff / count : 0
+		});
+	}
+	
+	return shots;
 }
 
-std::pair<int, int> SceneDetector::getMiddleScene(
-	const std::vector<SceneInfo>& scenes,
-	int total_frames
-) {
-	if (scenes.empty()) {
-		return {0, total_frames - 1};
-	}
+ShotInfo SceneDetector::getLongestPanShot(const std::vector<ShotInfo>& shots) {
+	ShotInfo longest;
+	int max_length = 0;
 	
-	// 找到所有转场点
-	std::vector<int> transitions;
-	transitions.push_back(0); // 第一帧
-	
-	for (const auto& scene : scenes) {
-		if (scene.is_transition) {
-			transitions.push_back(scene.frame_index);
+	for (const auto& shot : shots) {
+		if (shot.type == ShotType::PAN) {
+			int length = shot.end_frame - shot.start_frame + 1;
+			if (length > max_length) {
+				max_length = length;
+				longest = shot;
+			}
 		}
 	}
-	transitions.push_back(total_frames); // 最后一帧之后
 	
-	// 找到中间的场景
-	int middle_index = (transitions.size() - 1) / 2;
-	
-	int start = transitions[middle_index];
-	int end = (middle_index + 1 < static_cast<int>(transitions.size())) 
-	          ? transitions[middle_index + 1] - 1 
-	          : total_frames - 1;
-	
-	return {start, end};
+	return longest;
+}
+
+std::vector<ShotInfo> SceneDetector::getPanShots(const std::vector<ShotInfo>& shots) {
+	std::vector<ShotInfo> pan_shots;
+	for (const auto& shot : shots) {
+		if (shot.type == ShotType::PAN) {
+			pan_shots.push_back(shot);
+		}
+	}
+	return pan_shots;
+}
+
+std::vector<ShotInfo> SceneDetector::getStaticShots(const std::vector<ShotInfo>& shots) {
+	std::vector<ShotInfo> static_shots;
+	for (const auto& shot : shots) {
+		if (shot.type == ShotType::STATIC) {
+			static_shots.push_back(shot);
+		}
+	}
+	return static_shots;
 }

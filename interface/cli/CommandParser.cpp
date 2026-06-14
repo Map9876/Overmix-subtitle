@@ -210,15 +210,26 @@ void CommandParser::parse( QStringList commands ){
 		}
 		else if( cmd.is( "scene-detect" ) ){
 			// 解析阈值参数
-			double threshold = 0.3;
+			double static_threshold = 2.0;
+			double pan_threshold = 10.0;
 			if( !cmd.arguments().isEmpty() ){
-				bool ok;
-				double val = cmd.arguments().toDouble(&ok);
-				if( ok && val > 0 && val < 1 )
-					threshold = val;
+				// 格式: static_threshold:pan_threshold
+				QStringList thresholds = cmd.arguments().split(':');
+				if( thresholds.size() >= 1 ){
+					bool ok;
+					double val = thresholds[0].toDouble(&ok);
+					if( ok && val > 0 ) static_threshold = val;
+				}
+				if( thresholds.size() >= 2 ){
+					bool ok;
+					double val = thresholds[1].toDouble(&ok);
+					if( ok && val > 0 ) pan_threshold = val;
+				}
 			}
 			
-			std::cout << "Detecting scenes (threshold=" << threshold << ")..." << std::endl;
+			std::cout << "Analyzing frames..." << std::endl;
+			std::cout << "  Static threshold: " << static_threshold << std::endl;
+			std::cout << "  Pan threshold: " << pan_threshold << std::endl;
 			
 			// 收集所有灰度帧
 			std::vector<Plane> gray_frames;
@@ -231,31 +242,50 @@ void CommandParser::parse( QStringList commands ){
 				}
 			}
 			
-			// 检测转场
-			auto scenes = SceneDetector::detectScenes( gray_frames, threshold );
+			// 分析帧
+			auto scenes = SceneDetector::analyzeFrames( gray_frames, static_threshold, pan_threshold );
 			
-			// 输出转场信息
-			int transition_count = 0;
+			// 输出每帧信息
+			std::cout << "\nFrame analysis:" << std::endl;
 			for( size_t i = 0; i < scenes.size(); i++ ){
-				if( scenes[i].is_transition ){
-					std::cout << "  Transition at frame " << i 
-					          << " (score=" << scenes[i].score << ")" << std::endl;
-					transition_count++;
-				}
+				const char* type_str = "STATIC";
+				if( scenes[i].type == ShotType::PAN ) type_str = "PAN";
+				if( scenes[i].type == ShotType::TRANSITION ) type_str = "TRANSITION";
+				
+				std::cout << "  Frame " << i 
+				          << " (score=" << scenes[i].score << ")"
+				          << " [" << type_str << "]" << std::endl;
 			}
-			std::cout << "Found " << transition_count << " transitions." << std::endl;
 			
-			// 获取最长场景
-			auto longest = SceneDetector::getLongestScene( scenes, gray_frames.size() );
-			std::cout << "Longest scene: frame " << longest.first 
-			          << " to " << longest.second 
-			          << " (" << (longest.second - longest.first + 1) << " frames)" << std::endl;
+			// 分割镜头
+			auto shots = SceneDetector::segmentShots( scenes );
 			
-			// 只保留最长场景的帧
-			// 这需要修改 images 容器，但 ImageContainer 可能不支持直接删除
-			// 所以这里只是输出信息，用户可以手动选择帧范围
-			std::cout << "\nTo use only the longest scene, extract frames " 
-			          << longest.first << "-" << longest.second << " from the video." << std::endl;
+			// 输出镜头信息
+			std::cout << "\nShot segments:" << std::endl;
+			for( size_t i = 0; i < shots.size(); i++ ){
+				const char* type_str = "STATIC";
+				if( shots[i].type == ShotType::PAN ) type_str = "PAN";
+				if( shots[i].type == ShotType::TRANSITION ) type_str = "TRANSITION";
+				
+				std::cout << "  Shot " << i + 1 
+				          << ": frame " << shots[i].start_frame 
+				          << "-" << shots[i].end_frame
+				          << " (" << (shots[i].end_frame - shots[i].start_frame + 1) << " frames)"
+				          << " [" << type_str << "]"
+				          << " avg_diff=" << shots[i].avg_diff << std::endl;
+			}
+			
+			// 获取平移镜头
+			auto longest = SceneDetector::getLongestPanShot( shots );
+			if( longest.end_frame > longest.start_frame ){
+				std::cout << "\nLongest pan shot: frame " << longest.start_frame 
+				          << " to " << longest.end_frame
+				          << " (" << (longest.end_frame - longest.start_frame + 1) << " frames)" << std::endl;
+				std::cout << "To use this shot, extract frames " 
+				          << longest.start_frame << "-" << longest.end_frame << " from the video." << std::endl;
+			} else {
+				std::cout << "\nNo pan shot detected." << std::endl;
+			}
 		}
 		else if( cmd.is( "help" ) )
 			printHelp( cmd.arguments() );
