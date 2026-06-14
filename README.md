@@ -1,11 +1,116 @@
 Overmix
 =======
 
-[![Discord](https://img.shields.io/discord/550072474855800837)](https://discord.gg/YvvfDbT)
-[![GitHub license](https://img.shields.io/badge/license-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0.txt)
-[![GitHub release](https://img.shields.io/badge/release-v0.3.0-blue.svg?style=flat-square)](https://github.com/spillerrec/Overmix/releases/tag/v0.3.0)
-[![Coverity Scan Build Status](https://scan.coverity.com/projects/7062/badge.svg)](https://scan.coverity.com/projects/spillerrec-overmix)
-[![CircleCI](https://circleci.com/gh/spillerrec/Overmix.svg?style=svg)](https://circleci.com/gh/spillerrec/Overmix)
+将动漫中泳衣福利等平移镜头，的多张截图/视频，合并为一张全身图。
+
+本仓库 [map9876/Overmix-subtitle](https://github.com/map9876/Overmix-subtitle) 是源仓库 [spillerrec/Overmix](https://github.com/spillerrec/Overmix) 的 fork 版本，增加了带字幕的截图也能一键拼图的功能。
+
+---
+
+## 更新日志
+
+### 2024-06-14
+
+**新增功能：字幕移除 (`--remove-subtitles`)**
+
+使用 `--remove-subtitles` 参数可以自动检测并移除视频/截图中的字幕区域。
+
+- 新增 `src/planes/SubtitleDetector.hpp/cpp` - 字幕检测器
+- 修改 `interface/cli/CommandParser.cpp` - 添加 CLI 命令
+- 添加 GitHub Actions 多平台自动构建（Linux/Windows/macOS/Termux）
+
+**使用方法：**
+```bash
+./OvermixCli *.png --remove-subtitles --comparator=Gradient:1/0/0:ver:0.75:3:5:0 --align=Recursive --render=average:0:0 --save=0:output.png
+```
+
+**输出示例：**
+- 无字幕移除：852x886
+- 有字幕移除：852x1128
+
+---
+
+## 快速使用
+
+### 方法一：下载预编译版本（推荐）
+
+从 [Releases](https://github.com/map9876/Overmix-subtitle/releases) 页面下载对应系统的压缩包，解压后直接使用。
+
+| 平台 | 文件名 | 说明 |
+|------|--------|------|
+| Linux x86_64 | overmix-linux-x86_64.tar.gz | 大多数 Linux 桌面 |
+| Termux (Android) | overmix-termux-aarch64.tar.gz | Android 手机 |
+| Windows | overmix-windows-x86_64.zip | Windows 10/11 |
+| macOS | overmix-macos-x86_64.tar.gz | macOS Intel |
+
+```bash
+# Linux / macOS / Termux
+tar -xzf overmix-linux-x86_64.tar.gz
+./OvermixCli *.png --remove-subtitles --save=0:output.png
+
+# Windows
+# 解压后运行 OvermixCli.exe
+```
+
+### 方法二：从源码编译
+
+```bash
+# 克隆仓库
+git clone https://github.com/map9876/Overmix-subtitle.git
+cd Overmix-subtitle
+
+# 安装依赖 (Debian/Ubuntu)
+sudo apt-get install -y cmake g++ qtbase5-dev libqt5svg5-dev libqt5x11extras5-dev \
+    libboost-all-dev libeigen3-dev libfftw3-dev libpng-dev libpng++-dev libjpeg-dev \
+    libraw-dev liblcms2-dev libpugixml-dev zlib1g-dev liblzma-dev \
+    libavformat-dev libavcodec-dev libavutil-dev
+
+# 编译
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=release
+make -j$(nproc)
+```
+
+## 命令参数
+
+| 参数 | 说明 |
+|------|------|
+| `--remove-subtitles` | 检测并移除字幕区域 |
+| `--comparator=Gradient:1/0/0:ver:0.75:3:5:0` | 梯度搜索，垂直方向 |
+| `--align=Recursive` | 递归对齐器 |
+| `--render=average:0:0` | 平均渲染器 |
+| `--save=0:output.png` | 保存输出文件 |
+
+### 对齐方向
+
+| 场景 | AlignMethod |
+|------|-------------|
+| 竖直平移（从上到下） | `ver` |
+| 水平平移（从左到右） | `hor` |
+| 斜向平移 | `both` |
+
+## 输出示例
+
+| 输入 | 输出尺寸 |
+|------|----------|
+| 3张截图 (2134x1200) | 3667x2477 |
+| 视频48帧 (无字幕移除) | 852x886 |
+| 视频48帧 (有字幕移除) | 852x1128 |
+
+## 字幕移除算法
+
+基于 [Video-Subtitles-Detector](https://github.com/Aalaa4444/Video-Subtitles-Detector) 项目的方法：
+
+1. 自适应阈值化检测文字区域
+2. 形态学闭运算连接断裂文字
+3. 白色像素统计判断是否有字幕
+4. 裁剪掉字幕区域
+
+不需要 OCR 或深度学习，速度快且准确。
+
+---
+
+以下是原简介:
 
 Overmix can stitch fractions of smaller images together to create the original full image. It is specifically made for stitching anime screenshots, where a small portion of a scene is shown and the viewpoint slides to show the remaining area.
 
