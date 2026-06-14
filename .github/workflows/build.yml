@@ -24,8 +24,8 @@ jobs:
       - name: Build
         run: |
           mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=release
-          make -j$(nproc)
+          cmake .. -DCMAKE_BUILD_TYPE=release -DCMAKE_CXX_FLAGS="-I${{ github.workspace }}/src/gpu"
+          make -j$(nproc) 2>&1 || (cat CMakeFiles/OvermixCore.dir/flags.make; exit 1)
       
       - name: Package
         run: |
