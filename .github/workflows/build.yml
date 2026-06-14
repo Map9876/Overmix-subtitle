@@ -9,7 +9,7 @@ jobs:
   build-linux-x86_64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
@@ -37,64 +37,26 @@ jobs:
           tar -czf ../overmix-linux-x86_64.tar.gz *
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
           path: overmix-linux-x86_64.tar.gz
 
-  build-linux-aarch64:
+  build-termux:
     runs-on: ubuntu-latest
+    container:
+      image: termux/termux-docker:latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
-      - name: Install cross-compiler
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++-aarch64-linux-gnu \
-            qtbase5-dev:arm64 libqt5svg5-dev:arm64 libqt5x11extras5-dev:arm64 \
-            libboost-all-dev:arm64 libeigen3-dev libfftw3-dev:arm64 \
-            libpng-dev:arm64 libjpeg-dev:arm64 libraw-dev:arm64 \
-            liblcms2-dev:arm64 libpugixml-dev:arm64 zlib1g-dev:arm64 \
-            liblzma-dev:arm64 libavformat-dev:arm64 libavcodec-dev:arm64 \
-            libavutil-dev:arm64
+          pkg update -y
+          pkg install -y cmake clang make boost eigen fftw libpng libjpeg-turbo \
+            libraw libpugixml zlib liblzma ffmpeg git
       
       - name: Build
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=release \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-            -DCMAKE_CXX_FLAGS="-I${{ github.workspace }}/src/gpu"
-          make -j$(nproc)
-      
-      - name: Package
-        run: |
-          mkdir -p package
-          cp build/OvermixCli package/
-          cd package
-          tar -czf ../overmix-linux-aarch64.tar.gz *
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: linux-aarch64
-          path: overmix-linux-aarch64.tar.gz
-
-  build-termux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Termux
-        uses: spenserblack/actions-termux@v1
-      
-      - name: Build in Termux
-        run: |
-          pkg update -y
-          pkg install -y cmake clang boost eigen fftw libpng libjpeg-turbo \
-            libraw libpugixml zlib liblzma ffmpeg
-          
           mkdir -p build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=release
           make -j$(nproc)
@@ -107,7 +69,7 @@ jobs:
           tar -czf ../overmix-termux-aarch64.tar.gz *
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: termux-aarch64
           path: overmix-termux-aarch64.tar.gz
@@ -115,10 +77,10 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: '5.15.2'
           modules: 'qtsvg'
@@ -147,12 +109,11 @@ jobs:
         run: |
           mkdir package
           copy build\Release\OvermixCli.exe package\
-          copy build\Release\Overmix.exe package\ 2>nul
           cd package
           7z a ..\overmix-windows-x86_64.zip *
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64
           path: overmix-windows-x86_64.zip
@@ -160,7 +121,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
@@ -179,30 +140,28 @@ jobs:
         run: |
           mkdir -p package
           cp build/OvermixCli package/
-          cp build/Overmix package/ 2>/dev/null || true
           cd package
           tar -czf ../overmix-macos-x86_64.tar.gz *
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-x86_64
           path: overmix-macos-x86_64.tar.gz
 
   release:
-    needs: [build-linux-x86_64, build-linux-aarch64, build-termux, build-windows, build-macos]
+    needs: [build-linux-x86_64, build-termux, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
       
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             linux-x86_64/overmix-linux-x86_64.tar.gz
-            linux-aarch64/overmix-linux-aarch64.tar.gz
             termux-aarch64/overmix-termux-aarch64.tar.gz
             windows-x86_64/overmix-windows-x86_64.zip
             macos-x86_64/overmix-macos-x86_64.tar.gz
