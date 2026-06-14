@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-linux-x86_64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       
@@ -24,7 +24,7 @@ jobs:
       - name: Build
         run: |
           mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=release -DCMAKE_CXX_FLAGS="-I${{ github.workspace }}/src/gpu"
+          cmake .. -DCMAKE_BUILD_TYPE=release
           make -j$(nproc)
       
       - name: Package
@@ -42,68 +42,36 @@ jobs:
           name: linux-x86_64
           path: overmix-linux-x86_64.tar.gz
 
-  build-termux:
-    runs-on: ubuntu-latest
-    container:
-      image: termux/termux-docker:latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          pkg update -y
-          pkg install -y cmake clang make boost eigen fftw libpng libjpeg-turbo \
-            libraw libpugixml zlib liblzma ffmpeg git
-      
-      - name: Build
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=release
-          make -j$(nproc)
-      
-      - name: Package
-        run: |
-          mkdir -p package
-          cp build/OvermixCli package/
-          cd package
-          tar -czf ../overmix-termux-aarch64.tar.gz *
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: termux-aarch64
-          path: overmix-termux-aarch64.tar.gz
-
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
       
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '5.15.2'
-          modules: 'qtsvg'
+          arch: 'win64_msvc2019_64'
       
-      - name: Install vcpkg
+      - name: Install dependencies via vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg.git
-          cd vcpkg
+          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+          cd C:\vcpkg
           .\bootstrap-vcpkg.bat
-      
-      - name: Install dependencies
-        run: |
-          cd vcpkg
           .\vcpkg install boost:x64-windows eigen3:x64-windows fftw3:x64-windows \
-            libpng:x64-windows libjpeg-turbo:x64-windows libraw:x64-windows \
-            lcms:x64-windows pugixml:x64-windows zlib:x64-windows \
-            lzma:x64-windows ffmpeg:x64-windows
+            libpng:x64-windows libjpeg-turbo:x64-windows \
+            pugixml:x64-windows zlib:x64-windows xz:x64-windows
+        shell: cmd
       
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
           cmake --build . --config Release
+        shell: cmd
       
       - name: Package
         run: |
@@ -111,6 +79,7 @@ jobs:
           copy build\Release\OvermixCli.exe package\
           cd package
           7z a ..\overmix-windows-x86_64.zip *
+        shell: cmd
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -119,14 +88,14 @@ jobs:
           path: overmix-windows-x86_64.zip
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
           brew install cmake qt@5 boost eigen fftw libpng jpeg libraw \
-            little-cms2 pugixml lzma ffmpeg
+            little-cms2 pugixml xz ffmpeg
       
       - name: Build
         run: |
@@ -149,10 +118,40 @@ jobs:
           name: macos-x86_64
           path: overmix-macos-x86_64.tar.gz
 
+  build-termux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build in Termux container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: termux/termux-docker:latest
+          options: -v ${{ github.workspace }}:/work -w /work
+          run: |
+            pkg update -y
+            pkg install -y cmake clang make boost eigen fftw libpng libjpeg-turbo \
+              libraw libpugixml zlib liblzma ffmpeg git
+            mkdir -p build && cd build
+            cmake .. -DCMAKE_BUILD_TYPE=release
+            make -j$(nproc)
+            mkdir -p ../package
+            cp OvermixCli ../package/
+            cd ../package
+            tar -czf ../overmix-termux-aarch64.tar.gz *
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: termux-aarch64
+          path: overmix-termux-aarch64.tar.gz
+
   release:
     needs: [build-linux-x86_64, build-termux, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -166,5 +165,3 @@ jobs:
             windows-x86_64/overmix-windows-x86_64.zip
             macos-x86_64/overmix-macos-x86_64.tar.gz
           draft: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
