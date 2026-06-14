@@ -1,0 +1,211 @@
+name: Build Overmix
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ \
+            qtbase5-dev libqt5svg5-dev libqt5x11extras5-dev \
+            libboost-all-dev libeigen3-dev libfftw3-dev \
+            libpng-dev libpng++-dev libjpeg-dev libraw-dev \
+            liblcms2-dev libpugixml-dev zlib1g-dev liblzma-dev \
+            libavformat-dev libavcodec-dev libavutil-dev
+      
+      - name: Build
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=release -DCMAKE_CXX_FLAGS="-I${{ github.workspace }}/src/gpu"
+          make -j$(nproc)
+      
+      - name: Package
+        run: |
+          mkdir -p package
+          cp build/OvermixCli package/
+          cp build/Overmix package/ 2>/dev/null || true
+          cp build/OvermixTrainer package/ 2>/dev/null || true
+          cd package
+          tar -czf ../overmix-linux-x86_64.tar.gz *
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x86_64
+          path: overmix-linux-x86_64.tar.gz
+
+  build-linux-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install cross-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++-aarch64-linux-gnu \
+            qtbase5-dev:arm64 libqt5svg5-dev:arm64 libqt5x11extras5-dev:arm64 \
+            libboost-all-dev:arm64 libeigen3-dev libfftw3-dev:arm64 \
+            libpng-dev:arm64 libjpeg-dev:arm64 libraw-dev:arm64 \
+            liblcms2-dev:arm64 libpugixml-dev:arm64 zlib1g-dev:arm64 \
+            liblzma-dev:arm64 libavformat-dev:arm64 libavcodec-dev:arm64 \
+            libavutil-dev:arm64
+      
+      - name: Build
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_CXX_FLAGS="-I${{ github.workspace }}/src/gpu"
+          make -j$(nproc)
+      
+      - name: Package
+        run: |
+          mkdir -p package
+          cp build/OvermixCli package/
+          cd package
+          tar -czf ../overmix-linux-aarch64.tar.gz *
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-aarch64
+          path: overmix-linux-aarch64.tar.gz
+
+  build-termux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Termux
+        uses: spenserblack/actions-termux@v1
+      
+      - name: Build in Termux
+        run: |
+          pkg update -y
+          pkg install -y cmake clang boost eigen fftw libpng libjpeg-turbo \
+            libraw libpugixml zlib liblzma ffmpeg
+          
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=release
+          make -j$(nproc)
+      
+      - name: Package
+        run: |
+          mkdir -p package
+          cp build/OvermixCli package/
+          cd package
+          tar -czf ../overmix-termux-aarch64.tar.gz *
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: termux-aarch64
+          path: overmix-termux-aarch64.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          modules: 'qtsvg'
+      
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+      
+      - name: Install dependencies
+        run: |
+          cd vcpkg
+          .\vcpkg install boost:x64-windows eigen3:x64-windows fftw3:x64-windows \
+            libpng:x64-windows libjpeg-turbo:x64-windows libraw:x64-windows \
+            lcms:x64-windows pugixml:x64-windows zlib:x64-windows \
+            lzma:x64-windows ffmpeg:x64-windows
+      
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake --build . --config Release
+      
+      - name: Package
+        run: |
+          mkdir package
+          copy build\Release\OvermixCli.exe package\
+          copy build\Release\Overmix.exe package\ 2>nul
+          cd package
+          7z a ..\overmix-windows-x86_64.zip *
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-x86_64
+          path: overmix-windows-x86_64.zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          brew install cmake qt@5 boost eigen fftw libpng jpeg libraw \
+            little-cms2 pugixml lzma ffmpeg
+      
+      - name: Build
+        run: |
+          export PATH="/usr/local/opt/qt@5/bin:$PATH"
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=release \
+            -DCMAKE_PREFIX_PATH="/usr/local/opt/qt@5"
+          make -j$(sysctl -n hw.ncpu)
+      
+      - name: Package
+        run: |
+          mkdir -p package
+          cp build/OvermixCli package/
+          cp build/Overmix package/ 2>/dev/null || true
+          cd package
+          tar -czf ../overmix-macos-x86_64.tar.gz *
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-x86_64
+          path: overmix-macos-x86_64.tar.gz
+
+  release:
+    needs: [build-linux-x86_64, build-linux-aarch64, build-termux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            linux-x86_64/overmix-linux-x86_64.tar.gz
+            linux-aarch64/overmix-linux-aarch64.tar.gz
+            termux-aarch64/overmix-termux-aarch64.tar.gz
+            windows-x86_64/overmix-windows-x86_64.zip
+            macos-x86_64/overmix-macos-x86_64.tar.gz
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

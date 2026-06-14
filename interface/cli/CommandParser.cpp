@@ -25,6 +25,7 @@
 #include "containers/ImageContainerSaver.hpp"
 #include "video/VideoStream.hpp"
 #include "video/VideoFrame.hpp"
+#include "planes/SubtitleDetector.hpp"
 
 #include <QFileInfo>
 #include <QImage>
@@ -52,6 +53,7 @@ static void printHelp( QString type ){
 		std << "\t" << "--render\n";
 		std << "\t" << "--post-process\n";
 		std << "\t" << "--save\n";
+		std << "\t" << "--remove-subtitles\n";
 		std << "\t" << "--no-gui\n";
 		std << "\t" << "--help\n";
 		std << "\n";
@@ -82,6 +84,13 @@ static void printHelp( QString type ){
 		}
 		else if( type == "no-gui" )
 			std << "Prevents the GUI from opening, only applies for 'Overmix' executable\n";
+		else if( type == "remove-subtitles" ){
+			std << "Detects and removes subtitle regions from images:\n";
+			std << "--remove-subtitles\n\n";
+			std << "Uses adaptive thresholding and morphological operations to detect subtitles.\n";
+			std << "The subtitle region (typically bottom 15% of the image) will be cropped.\n";
+			std << "This is useful for stitching anime pan shots with subtitles.\n";
+		}
 		else
 			std << "Unknown command: " << type << "\n";
 	}
@@ -155,6 +164,39 @@ void CommandParser::parse( QStringList commands ){
 			Splitter args( cmd.arguments(), ':' );
 			auto id = requireBound( asInt( args.left ), 0, renders.size() );
 			renders[id].to_qimage().save( args.right );
+		}
+		else if( cmd.is( "remove-subtitles" ) ){
+			std::cout << "Detecting and removing subtitles..." << std::endl;
+			
+			// 对每张图片检测并移除字幕
+			for( auto& group : images ){
+				for( auto& item : group ){
+					auto& img = item.imageRef();
+					
+					// 获取灰度图用于字幕检测
+					if( img.is_valid() && img.size() > 0 ){
+						// 创建灰度副本用于检测
+						Plane gray( img[0] );  // 使用第一个通道的副本
+						auto region = SubtitleDetector::detect( gray );
+						
+						if( region.has_subtitle ){
+							std::cout << "  Found subtitle at y=" << region.y 
+							          << ", height=" << region.height << std::endl;
+							
+							// 裁剪掉字幕区域
+							for( unsigned c = 0; c < img.size(); c++ ){
+								Plane& plane = img[c];
+								plane.crop( 
+									Point<unsigned>(0, 0), 
+									Size<unsigned>(plane.get_width(), region.y) 
+								);
+							}
+						}
+					}
+				}
+			}
+			
+			std::cout << "Subtitle removal complete." << std::endl;
 		}
 		else if( cmd.is( "help" ) )
 			printHelp( cmd.arguments() );

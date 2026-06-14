@@ -34,6 +34,7 @@ set(SOURCES_PLANES
 	planes/PorterDuff.cpp
 	planes/PlaneExcept.cpp
 	planes/PatternRemove.cpp
+	planes/SubtitleDetector.cpp
 	planes/gwenview/iodevicejpegsourcemanager.cpp
 	)
 	
@@ -84,6 +85,7 @@ set(SOURCES_VIDEO
 	video/VideoStream.cpp
 	)
 	
+# GPU source files (compiled with stub if ENABLE_GPU is OFF)
 set(SOURCES_GPU
 	gpu/GpuInstance.cpp
 	gpu/GpuDevice.cpp
@@ -115,8 +117,8 @@ add_library(OvermixCore
 	${WAIFU_SOURCES} 
 	${SOURCES_OTHERS} 
 	)
-target_include_directories(OvermixCore PRIVATE ${JPEG_INCLUDE_DIRS} ${PNGPP_INCLUDE_DIRS} ${WEBGPU_INCLUDE_DIR})
-target_link_libraries(OvermixCore Qt5::Gui Qt5::Concurrent PNG::PNG ZLIB::ZLIB LibLZMA::LibLZMA pugixml::pugixml PkgConfig::FFTW3 PkgConfig::LIBRAW PkgConfig::FFMPEG OpenMP::OpenMP_CXX ${JPEG_LIBRARIES} ${WAIFU_LIB} ${WEBGPU_LIBRARY})
+target_include_directories(OvermixCore PRIVATE ${JPEG_INCLUDE_DIRS} ${PNGPP_INCLUDE_DIRS})
+target_link_libraries(OvermixCore Qt5::Gui Qt5::Concurrent PNG::PNG ZLIB::ZLIB LibLZMA::LibLZMA pugixml::pugixml PkgConfig::FFTW3 PkgConfig::LIBRAW PkgConfig::FFMPEG OpenMP::OpenMP_CXX ${JPEG_LIBRARIES} ${WAIFU_LIB})
 if(MATH_LIBRARY)
     target_link_libraries(OvermixCore ${MATH_LIBRARY})
 endif()

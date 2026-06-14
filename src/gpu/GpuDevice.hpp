@@ -26,6 +26,12 @@
 
 #include <vector>
 
+// Forward declarations - these must be defined before the class
+// but are defined after it. We declare them here.
+inline WGPUBindGroupLayoutEntry BindGroupLayoutEntry(WGPUBufferBindingType type);
+template<typename T> class GpuBuffer;
+template<typename T> WGPUBindGroupEntry BindGroupEntry(GpuBuffer<T>& buffer);
+
 class GpuDevice{
 private:
 	GpuHandle<WGPUDevice,wgpuDeviceRelease> device;

@@ -138,7 +138,7 @@ std::unique_ptr<GpuDevice> GpuInstance::RequestDevice(){
 	
 	deviceDesc.nextInChain = nullptr;
 	deviceDesc.label = "My Device"; // anything works here, that's your call
-	deviceDesc.requiredFeatureCount = 0; // we do not require any specific feature
+	deviceDesc.requiredFeaturesCount = 0; // we do not require any specific feature
 	deviceDesc.requiredLimits = &requiredLimits; // we do not require any specific limit
 	deviceDesc.defaultQueue.nextInChain = nullptr;
 	deviceDesc.defaultQueue.label = "The default queue";
